@@ -1,11 +1,10 @@
 #lang racket/base
 
-(provide make-readtable+ make-readtable++ default-action peek/read?)
+(provide make-readtable+ make-readtable++ default-action peek/read? peek-not?)
 
 (require racket/match
          racket/string
-         racket/port
-         syntax/parse/define)
+         racket/port)
 
 (struct read-info (rt ch mode port src line col pos))
 
@@ -72,7 +71,7 @@
              "(or/c 'terminating-macro 'non-terminating-macro 'dispatch-macro)"
               mode))
           (unless (and (procedure? action) (procedure-arity-includes? action 6))
-            (raise-arguments-error
+            (raise-argument-error
              'make-readtable++
              "(procedure-arity-includes/c 6)"
              action))
@@ -148,3 +147,84 @@
 (define (peek/read? str in)
   (and (equal? str (peek-string (string-length str) 0 in))
        (read-string (string-length str) in)))
+
+(define (peek-not? xs in)
+  (for/and ([x (in-list xs)])
+    (not (equal? x (peek-string (string-length x) 0 in)))))
+
+(module+ test
+  (require rackunit)
+
+  ;; Test interaction with existing dispatch macro
+
+  (define (read-string-for-syntax amt port src line col pos)
+    (define s (read-string amt port))
+    (datum->syntax #f
+                   s
+                   (let-values ([(l c p) (port-next-location port)])
+                     (list src line col pos (and pos (- p pos))))))
+
+  (let ()
+    (define s "(#paq #px\"abc\" #pxqe #p@ #pu)")
+
+    (define read-one
+      (case-lambda
+        [(ch port) (read-string 1 port)]
+        [(ch port src line col pos) (read-string-for-syntax 1 port src line col pos)]))
+
+    (define read-yield
+      (case-lambda
+        [(ch port)
+         (cond
+           [(peek-not? '("x" "a") port) (read-string 1 port)]
+           [else (default-action)])]
+        [(ch port src line col pos)
+         (cond
+           [(peek-not? '("x" "a") port) (read-string-for-syntax 1 port src line col pos)]
+           [else (default-action)])]))
+
+    (parameterize ([current-readtable (make-readtable++
+                                       #f
+                                       "pa" 'dispatch-macro read-one
+                                       "pxq" 'dispatch-macro read-one
+                                       "p" 'dispatch-macro read-yield)])
+      (check-equal? (read (open-input-string s)) '("q" #px"abc" "e" "@" "u")))))
+
+(module+ test
+  (let ()
+
+    ;; Test ordering
+
+    (define s "(#qabc@$ #qab)")
+    (define read-two
+      (case-lambda
+        [(ch port) (read-string 2 port)]
+        [(ch port src line col pos) (read-string-for-syntax 2 port src line col pos)]))
+    (define read-yield
+      (case-lambda
+        [(ch port)
+         (cond
+           [(peek-not? '("abc") port) (read-string 2 port)]
+           [else (default-action)])]
+        [(ch port src line col pos)
+         (cond
+           [(peek-not? '("abc") port) (read-string-for-syntax 2 port src line col pos)]
+           [else (default-action)])]))
+
+    (parameterize ([current-readtable (make-readtable++
+                                       #f
+                                       "q" 'dispatch-macro read-two
+                                       "qabc" 'dispatch-macro read-two)])
+      (check-equal? (read (open-input-string s)) '("@$" "ab")))
+
+    (parameterize ([current-readtable (make-readtable++
+                                       #f
+                                       "qabc" 'dispatch-macro read-two
+                                       "q" 'dispatch-macro read-two)])
+      (check-equal? (read (open-input-string s)) '("ab" c@$ "ab")))
+
+    (parameterize ([current-readtable (make-readtable++
+                                       #f
+                                       "qabc" 'dispatch-macro read-two
+                                       "q" 'dispatch-macro read-yield)])
+      (check-equal? (read (open-input-string s)) '("@$" "ab")))))
