@@ -167,21 +167,13 @@
   (let ()
     (define s "(#paq #px\"abc\" #pxqe #p@ #pu)")
 
-    (define read-one
-      (case-lambda
-        [(ch port) (read-string 1 port)]
-        [(ch port src line col pos) (read-string-for-syntax 1 port src line col pos)]))
+    (define (read-one ch port src line col pos)
+      (read-string-for-syntax 1 port src line col pos))
 
-    (define read-yield
-      (case-lambda
-        [(ch port)
-         (cond
-           [(peek-not? '("x" "a") port) (read-string 1 port)]
-           [else (default-action)])]
-        [(ch port src line col pos)
-         (cond
-           [(peek-not? '("x" "a") port) (read-string-for-syntax 1 port src line col pos)]
-           [else (default-action)])]))
+    (define (read-yield ch port src line col pos)
+      (cond
+        [(peek-not? '("x" "a") port) (read-string-for-syntax 1 port src line col pos)]
+        [else (default-action)]))
 
     (parameterize ([current-readtable (make-readtable++
                                        #f
@@ -196,20 +188,14 @@
     ;; Test ordering
 
     (define s "(#qabc@$ #qab)")
-    (define read-two
-      (case-lambda
-        [(ch port) (read-string 2 port)]
-        [(ch port src line col pos) (read-string-for-syntax 2 port src line col pos)]))
-    (define read-yield
-      (case-lambda
-        [(ch port)
-         (cond
-           [(peek-not? '("abc") port) (read-string 2 port)]
-           [else (default-action)])]
-        [(ch port src line col pos)
-         (cond
-           [(peek-not? '("abc") port) (read-string-for-syntax 2 port src line col pos)]
-           [else (default-action)])]))
+
+    (define (read-two ch port src line col pos)
+      (read-string-for-syntax 2 port src line col pos))
+
+    (define (read-yield ch port src line col pos)
+      (cond
+        [(peek-not? '("abc") port) (read-string-for-syntax 2 port src line col pos)]
+        [else (default-action)]))
 
     (parameterize ([current-readtable (make-readtable++
                                        #f
